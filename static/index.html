@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pyMusicGPT</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">🎵 pyMusicGPT</span>
+        <button class="icon-btn" id="newChatBtn" title="New chat">＋</button>
+      </div>
+
+      <div class="session-list" id="sessionList">
+        <!-- sessions injected by JS -->
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="icon-btn theme-toggle" id="themeToggle" title="Toggle theme">☀️</button>
+      </div>
+    </aside>
+
+    <!-- Main panel -->
+    <main class="main">
+      <div class="topbar">
+        <button class="icon-btn" id="sidebarToggle" title="Toggle sidebar">☰</button>
+        <span class="session-title" id="sessionTitle">Select or create a chat</span>
+      </div>
+
+      <!-- Message list -->
+      <div class="messages" id="messages">
+        <div class="empty-state" id="emptyState">
+          <p>🎵 Start generating music by typing a prompt below.</p>
+        </div>
+      </div>
+
+      <!-- Input bar -->
+      <form class="input-bar" id="promptForm">
+        <div class="duration-control">
+          <label for="durationInput">Duration (s)</label>
+          <input type="number" id="durationInput" min="1" max="600" value="10" />
+        </div>
+        <input
+          type="text"
+          id="promptInput"
+          class="prompt-input"
+          placeholder="Describe the music you want…"
+          autocomplete="off"
+          required
+        />
+        <button type="submit" class="send-btn" id="sendBtn">Generate</button>
+      </form>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
