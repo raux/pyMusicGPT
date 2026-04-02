@@ -1,6 +1,7 @@
 """SQLite-backed storage for chat sessions and generated audio entries."""
 
 import os
+import sys
 import sqlite3
 import time
 import uuid
@@ -14,6 +15,8 @@ def _data_dir() -> str:
         base = xdg
     elif os.name == "nt":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
+    elif sys.platform == "darwin":
+        base = os.path.join(os.path.expanduser("~"), "Library", "Application Support")
     else:
         base = os.path.join(os.path.expanduser("~"), ".local", "share")
     return os.path.join(base, "musicgpt")

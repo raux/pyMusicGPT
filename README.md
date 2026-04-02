@@ -18,7 +18,7 @@ pyMusicGPT is a full Python port of the Rust-based MusicGPT application. It offe
 | **Chat history** | Persistent sessions stored in SQLite — revisit, rename, or delete them. |
 | **Configurable duration** | Generate audio clips from 1 to 600 seconds. |
 | **Multiple model sizes** | `small`, `medium`, and `large` MusicGen variants. |
-| **GPU acceleration** | Optional CUDA support via PyTorch. |
+| **GPU acceleration** | Optional CUDA (Linux/Windows) and Apple MPS (macOS) support via PyTorch. |
 | **Cross-platform** | Runs wherever Python 3.9+ and PyTorch are available. |
 
 ---
@@ -26,7 +26,7 @@ pyMusicGPT is a full Python port of the Rust-based MusicGPT application. It offe
 ## Requirements
 
 - Python 3.9 or newer
-- [PyTorch](https://pytorch.org/get-started/locally/) (CPU or CUDA build)
+- [PyTorch](https://pytorch.org/get-started/locally/) (CPU, CUDA, or MPS build)
 
 ---
 
@@ -43,6 +43,23 @@ pip install -r requirements.txt
 # — or install as a package —
 pip install -e .
 ```
+
+### macOS (Apple Silicon)
+
+On Apple Silicon Macs (M1/M2/M3/M4), PyTorch can use the **Metal Performance Shaders (MPS)** backend for GPU-accelerated inference. Install PyTorch with MPS support (included in the default macOS wheels since PyTorch 2.0):
+
+```bash
+pip install torch torchvision torchaudio
+pip install -r requirements.txt
+```
+
+Then pass `--gpu` to enable MPS acceleration:
+
+```bash
+musicgpt "ambient soundscape" --gpu
+```
+
+> **Note:** The `--gpu` flag automatically selects the best available backend — CUDA on Linux/Windows and MPS on macOS Apple Silicon. If no GPU is available, it falls back to CPU.
 
 ---
 
@@ -128,6 +145,20 @@ pytest tests/
 | `large` | `facebook/musicgen-large` | ~3.3 GB, best quality |
 
 Models are downloaded automatically from HuggingFace Hub on first use and cached locally.
+
+---
+
+## Data directory
+
+pyMusicGPT stores its SQLite database and generated audio in a platform-specific directory:
+
+| Platform | Default path |
+|---|---|
+| **macOS** | `~/Library/Application Support/musicgpt/` |
+| **Linux** | `~/.local/share/musicgpt/` |
+| **Windows** | `%APPDATA%\musicgpt\` |
+
+Override with `--data-dir` or set the `XDG_DATA_HOME` environment variable.
 
 ---
 

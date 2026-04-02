@@ -58,9 +58,12 @@ class MusicGenerator:
         if self.use_gpu and torch.cuda.is_available():
             self._model = self._model.to("cuda")
             logger.info("Model loaded on CUDA.")
+        elif self.use_gpu and torch.backends.mps.is_available():
+            self._model = self._model.to("mps")
+            logger.info("Model loaded on Apple MPS.")
         else:
             if self.use_gpu:
-                logger.warning("CUDA not available, falling back to CPU.")
+                logger.warning("No GPU backend available (CUDA/MPS), falling back to CPU.")
             logger.info("Model loaded on CPU.")
 
     def generate(self, prompt: str, duration_secs: int = DEFAULT_SECS) -> np.ndarray:
@@ -91,6 +94,8 @@ class MusicGenerator:
 
         if self.use_gpu and torch.cuda.is_available():
             inputs = {k: v.to("cuda") for k, v in inputs.items()}
+        elif self.use_gpu and torch.backends.mps.is_available():
+            inputs = {k: v.to("mps") for k, v in inputs.items()}
 
         max_new_tokens = int(duration_secs * 50)  # ~50 tokens/second for MusicGen
 

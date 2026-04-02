@@ -47,7 +47,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--gpu",
         action="store_true",
         default=False,
-        help="Use CUDA GPU for inference (if available).",
+        help="Use GPU for inference — CUDA on Linux/Windows, Apple MPS on macOS (if available).",
     )
     parser.add_argument(
         "--output",
