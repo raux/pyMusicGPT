@@ -104,6 +104,10 @@ def create_app(
             except Exception as exc:
                 logger.exception("Generation failed for entry %s: %s", entry["id"], exc)
                 storage.update_entry(entry["id"], None, "error")
+            finally:
+                # Log completion or failure to a place the frontend can see if we had a log endpoint
+                # For now, we just ensure it's logged in the server console which is visible in terminal
+                logger.info("Background task finished for entry %s", entry["id"])
 
         background_tasks.add_task(_run)
         return entry

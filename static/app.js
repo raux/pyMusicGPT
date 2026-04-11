@@ -152,7 +152,30 @@ function updateEntryUI(entry, responseEl) {
     badge.className = "status-badge";
     badge.innerHTML = `<span class="spinner"></span> Generating…`;
     responseEl.appendChild(badge);
+
+    const logArea = document.createElement("div");
+    logArea.className = "entry-logs";
+    logArea.style.fontSize = "0.8rem";
+    logArea.style.marginTop = "5px";
+    logArea.style.opacity = "0.7";
+    logArea.textContent = "Waiting for server logs...";
+    responseEl.appendChild(logArea);
+
+    const intervalId = setInterval(async () => {
+      try {
+        const entry = await apiFetch(`/api/entries/${entryId}`);
+        updateEntryUI(entry, el);
+        if (entry.status !== "pending") {
+          clearInterval(intervalId);
+          pendingEntries.delete(entryId);
+        }
+      } catch (e) {
+        clearInterval(intervalId);
+        pendingEntries.delete(entryId);
+      }
+    }, POLL_MS);
   } else if (entry.status === "done" && entry.audio_file) {
+
     const audio = document.createElement("audio");
     audio.className = "audio-player";
     audio.controls = true;
