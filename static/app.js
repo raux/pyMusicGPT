@@ -251,16 +251,34 @@ function scrollToBottom() {
   messages.scrollTop = messages.scrollHeight;
 }
 
+// ---------- system metrics ----------
+async function updateMetrics() {
+  try {
+    const metrics = await apiFetch("/api/system/metrics");
+    const container = $("metricsContainer");
+    if (!container) return;
+
+    if (metrics.gpu_utilization > 0) {
+      container.innerHTML = `
+        <div class="metric-item">
+          GPU: ${metrics.gpu_utilization}%
+          <div class="progress-bar"><div class="progress" style="width: ${metrics.gpu_utilization}%"></div></div>
+        </div>
+        <div class="metric-item">
+          VRAM: ${metrics.gpu_memory_used.toFixed(0)}MB / ${metrics.gpu_memory_total.toFixed(0)}MB
+          <div class="progress-bar"><div class="progress" style="width: ${(metrics.gpu_memory_used / metrics.gpu_memory_total) * 100}%"></div></div>
+        </div>
+      `;
+    } else {
+      container.innerHTML = "<em>No GPU detected</em>";
+    }
+  } catch (e) {
+    console.error("Failed to fetch metrics", e);
+  }
+}
+setInterval(updateMetrics, 2000);
+
 // ---------- init ----------
 (async () => {
-  const savedTheme = localStorage.getItem("theme") || "dark";
-  applyTheme(savedTheme);
+...
 
-  await loadSessions();
-
-  // Resume polling for any pending entries after a page reload
-  if (currentSessionId) {
-    const entries = await apiFetch(`/api/sessions/${currentSessionId}/entries`);
-    entries.filter(e => e.status === "pending").forEach(e => startPolling(e.id));
-  }
-})();

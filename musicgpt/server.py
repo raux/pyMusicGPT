@@ -6,8 +6,6 @@ import os
 import threading
 from typing import Optional
 
-logger = logging.getLogger(__name__)
-
 try:
     from fastapi import BackgroundTasks, FastAPI, HTTPException
     from fastapi.responses import FileResponse, JSONResponse
@@ -20,8 +18,17 @@ except ImportError as _exc:
         "Install them with: pip install fastapi uvicorn pydantic"
     ) from _exc
 
+try:
+    import pynvml
+    HAS_NVML = True
+except ImportError:
+    HAS_NVML = False
+
 from .model import MusicGenerator, save_audio
 from .storage import Storage
+
+logger = logging.getLogger(__name__)
+...
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
 
@@ -58,7 +65,8 @@ def create_app(
 
     @app.post("/api/sessions", status_code=201)
     def create_session(body: SessionCreate):
-        return storage.create_session(name=body.name)
+        session = storage.create_session(name=body.name)
+        return session
 
     @app.get("/api/sessions/{session_id}")
     def get_session(session_id: str):
@@ -82,11 +90,21 @@ def create_app(
     # Entry endpoints
     # ------------------------------------------------------------------
 
-    @app.get("/api/sessions/{session_id}/entries")
-    def list_entries(session_id: str):
-        if not storage.get_session(session_id):
-            raise HTTPException(status_code=404, detail="Session not found")
-        return storage.list_entries(session_id)
+    @app.get("/api/system/metrics")
+    def get_metrics():
+        metrics = {"gpu_utilization": 0, "gpu_memory_used": 0, "gpu_memory_total": 0}
+        if HAS_NVML:
+            try:
+                pynvml.nvmlInit()
+                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                metrics["gpu_utilization"] = util.gpu
+                metrics["gpu_memory_used"] = mem.used / (1024**2)  # MB
+                metrics["gpu_memory_total"] = mem.total / (1024**2) # MB
+            except Exception:
+                pass
+        return metrics
 
     @app.post("/api/sessions/{session_id}/generate", status_code=202)
     def generate(session_id: str, body: GenerateRequest, background_tasks: BackgroundTasks):
