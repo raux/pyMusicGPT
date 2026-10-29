@@ -22,6 +22,7 @@ DEFAULT_MODEL = "small"
 DEFAULT_SECS = 600
 MAX_SECS = 600
 SAMPLE_RATE = 32000
+LOOP_CROSSFADE_SECS = 1.0
 
 DEVICES = ("auto", "cpu", "cuda", "mps")
 DEFAULT_DEVICE = "auto"
@@ -190,6 +191,35 @@ class MusicGenerator:
 
         audio = audio_values[0, 0].float().cpu().numpy()
         return audio
+
+
+def make_seamless_loop(
+    audio: np.ndarray,
+    sample_rate: int = SAMPLE_RATE,
+    crossfade_secs: float = LOOP_CROSSFADE_SECS,
+) -> np.ndarray:
+    """Return a copy of *audio* that loops without a click or jump.
+
+    The last ``crossfade_secs`` are blended (equal-power) into the start, so
+    the final sample flows directly into the first one on repeat. The result is
+    ``fade`` samples shorter than the input, where ``fade`` is the crossfade
+    length capped at a quarter of the clip. Very short clips are returned
+    unchanged.
+    """
+    audio = np.asarray(audio, dtype=np.float32)
+    n = len(audio)
+    fade = int(min(crossfade_secs * sample_rate, n // 4))
+    if fade < 2:
+        return audio.copy()
+
+    t = np.arange(fade, dtype=np.float32) / fade        # 0 → 1 (exclusive)
+    fade_in = np.sin(t * np.pi / 2)
+    fade_out = np.cos(t * np.pi / 2)
+
+    head = audio[:fade]
+    tail = audio[n - fade:]
+    blended = tail * fade_out + head * fade_in          # starts as tail, ends as head
+    return np.concatenate([blended, audio[fade:n - fade]]).astype(np.float32)
 
 
 def save_audio(audio: np.ndarray, output_path: str) -> None:

@@ -18,14 +18,9 @@ except ImportError as _exc:
         "Install them with: pip install fastapi uvicorn pydantic"
     ) from _exc
 
-try:
-    import pynvml
-    HAS_NVML = True
-except ImportError:
-    HAS_NVML = False
-
-from .model import MusicGenerator, save_audio
+from .model import MusicGenerator, make_seamless_loop, save_audio
 from .storage import Storage
+from .system_metrics import SystemMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +30,12 @@ _STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
 def create_app(
     generator: MusicGenerator,
     storage: Storage,
+    system_metrics: Optional[SystemMetrics] = None,
 ) -> FastAPI:
     """Build and return the FastAPI application."""
 
     app = FastAPI(title="pyMusicGPT", version="0.1.0")
+    system_metrics = system_metrics or SystemMetrics()
 
     # ------------------------------------------------------------------
     # Request / response schemas
@@ -53,6 +50,7 @@ def create_app(
     class GenerateRequest(BaseModel):
         prompt: str
         duration_secs: int = 10
+        loop: bool = True   # crossfade the end into the start for seamless looping
 
     # ------------------------------------------------------------------
     # Session endpoints
@@ -97,31 +95,23 @@ def create_app(
 
     @app.get("/api/system/metrics")
     def get_metrics():
-        metrics = {
-            "device": generator.device or generator.requested_device,
-            "gpu_utilization": 0,
-            "gpu_memory_used": 0,
-            "gpu_memory_total": 0,
-        }
+        device_memory = {}
         if generator.device == "mps":
-            # Apple GPUs expose memory use but no utilisation percentage.
-            metrics["gpu_utilization"] = None
             try:
-                metrics.update(generator.memory_stats())
+                device_memory = generator.memory_stats()
             except Exception:
                 logger.debug("Could not read MPS memory stats", exc_info=True)
-        elif HAS_NVML:
-            try:
-                pynvml.nvmlInit()
-                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                metrics["gpu_utilization"] = util.gpu
-                metrics["gpu_memory_used"] = mem.used / (1024**2)  # MB
-                metrics["gpu_memory_total"] = mem.total / (1024**2) # MB
-            except Exception:
-                pass
-        return metrics
+
+        snap = system_metrics.snapshot(device=generator.device, device_memory=device_memory)
+        gpu = snap["gpu"]
+        return {
+            "device": generator.device or generator.requested_device,
+            # Flat fields kept for backward compatibility with older clients.
+            "gpu_utilization": gpu["percent"],
+            "gpu_memory_used": gpu["memory_used_mb"] or 0,
+            "gpu_memory_total": gpu["memory_total_mb"] or 0,
+            **snap,
+        }
 
     @app.post("/api/sessions/{session_id}/generate", status_code=202)
     def generate(session_id: str, body: GenerateRequest, background_tasks: BackgroundTasks):
@@ -133,6 +123,8 @@ def create_app(
         def _run():
             try:
                 audio = generator.generate(body.prompt, body.duration_secs)
+                if body.loop:
+                    audio = make_seamless_loop(audio)
                 path = storage.new_audio_path()
                 save_audio(audio, path)
                 storage.update_entry(entry["id"], path, "done")

@@ -13,6 +13,7 @@ from .model import (
     MAX_SECS,
     MODELS,
     MusicGenerator,
+    make_seamless_loop,
     save_audio,
     unique_filename,
 )
@@ -75,6 +76,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path for the output WAV file (CLI mode only). Defaults to a unique file in the data directory.",
     )
     parser.add_argument(
+        "--no-loop",
+        dest="loop",
+        action="store_false",
+        default=True,
+        help=(
+            "CLI mode: save the raw clip instead of crossfading its end into its "
+            "start for seamless looping (the loop is ~1 s shorter than --secs)."
+        ),
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=8642,
@@ -119,6 +130,8 @@ def main(argv=None) -> int:
         # CLI mode: generate audio and save to file
         logging.getLogger(__name__).info("Generating music for: %r", args.prompt)
         audio = generator.generate(args.prompt, duration_secs=args.secs)
+        if args.loop:
+            audio = make_seamless_loop(audio)
 
         output_path = args.output or unique_filename(
             os.path.join(storage.data_dir, "audio")

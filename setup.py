@@ -17,6 +17,7 @@ setup(
         "uvicorn[standard]>=0.22.0",
         "pydantic>=2.0.0",
         "numpy>=1.24.0",
+        "psutil>=5.9.0",
     ],
     entry_points={
         "console_scripts": [

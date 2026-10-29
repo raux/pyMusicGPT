@@ -14,6 +14,7 @@ const $ = id => document.getElementById(id);
 const sessionList = $("sessionList");
 const messages    = $("messages");
 const emptyState  = $("emptyState");
+const deckMount   = $("deckMount");   // lives inside emptyState, which is detached once a chat has tracks
 
 // ---------- theme ----------
 function applyTheme(theme) {
@@ -165,12 +166,28 @@ function updateEntryUI(entry, responseEl) {
     logArea.textContent = "Waiting for server logs...";
     responseEl.appendChild(logArea);
   } else if (entry.status === "done" && entry.audio_file) {
+    const row = document.createElement("div");
+    row.className = "player-row";
 
     const audio = document.createElement("audio");
     audio.className = "audio-player";
     audio.controls = true;
+    audio.loop = true;   // tracks are crossfaded server-side to loop seamlessly
     audio.src = `/api/entries/${entry.id}/audio`;
-    responseEl.appendChild(audio);
+
+    const loopBtn = document.createElement("button");
+    loopBtn.type = "button";
+    loopBtn.className = "icon-btn loop-toggle";
+    loopBtn.textContent = "🔁";
+    const syncLoop = () => {
+      loopBtn.setAttribute("aria-pressed", String(audio.loop));
+      loopBtn.title = audio.loop ? "Looping — click to play once" : "Plays once — click to loop";
+    };
+    loopBtn.addEventListener("click", () => { audio.loop = !audio.loop; syncLoop(); });
+    syncLoop();
+
+    row.append(audio, loopBtn);
+    responseEl.appendChild(row);
 
     const badge = document.createElement("div");
     badge.className = "status-badge";
@@ -212,23 +229,35 @@ function startPolling(entryId) {
 }
 
 // ---------- generate ----------
+async function ensureSession(prompt) {
+  if (currentSessionId) return;
+  const name = prompt.length > 32 ? `${prompt.slice(0, 32).trim()}…` : prompt;
+  const session = await apiFetch("/api/sessions", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  currentSessionId = session.id;
+  $("sessionTitle").textContent = session.name;
+  await loadSessions();
+}
+
 $("promptForm").addEventListener("submit", async e => {
   e.preventDefault();
-  if (!currentSessionId) {
-    alert("Please create or select a chat first.");
-    return;
-  }
 
   const prompt = $("promptInput").value.trim();
   const secs   = parseInt($("durationInput").value, 10) || 10;
+  if (!prompt) return;
 
-  $("promptInput").value = "";
   $("sendBtn").disabled = true;
 
   try {
+    await ensureSession(prompt);   // no chat selected → start one automatically
+    $("promptInput").value = "";
+    closeDeckPopover();
+
     const entry = await apiFetch(`/api/sessions/${currentSessionId}/generate`, {
       method: "POST",
-      body: JSON.stringify({ prompt, duration_secs: secs }),
+      body: JSON.stringify({ prompt, duration_secs: secs, loop: true }),
     });
 
     const { response } = addMessageToUI(entry);
@@ -247,55 +276,66 @@ function scrollToBottom() {
   messages.scrollTop = messages.scrollHeight;
 }
 
-// ---------- system metrics ----------
-const DEVICE_LABELS = {
-  mps: "Apple GPU (MPS)",
-  cuda: "NVIDIA GPU (CUDA)",
-  cpu: "CPU",
-  auto: "Device: auto",
-};
+// ---------- idea deck ----------
+const deck = new IdeaDeck({
+  getUseTarget: () => $("promptInput"),
+  onUse: idea => {
+    closeDeckPopover();
+    const input = $("promptInput");
+    input.value = idea.prompt;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  },
+});
+deckMount.appendChild(deck.el);
 
-function formatMB(mb) {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
+function openDeckPopover() {
+  $("deckPopoverBody").appendChild(deck.el);
+  $("deckPopover").hidden = false;
+  $("deckBtn").setAttribute("aria-expanded", "true");
 }
 
-function progressBar(percent) {
-  const pct = Math.max(0, Math.min(100, percent || 0));
-  return `<div class="progress-bar"><div class="progress" style="width: ${pct}%"></div></div>`;
+function closeDeckPopover() {
+  if ($("deckPopover").hidden) return;
+  $("deckPopover").hidden = true;
+  deckMount.appendChild(deck.el);   // home is the empty-chat screen (may be detached)
+  $("deckBtn").setAttribute("aria-expanded", "false");
+}
+
+$("deckBtn").addEventListener("click", () => {
+  if (emptyState.isConnected && $("deckPopover").hidden) {
+    // Deck is already on screen (empty chat): just deal a card.
+    deck.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    deck.draw();
+  } else if ($("deckPopover").hidden) {
+    openDeckPopover();
+  } else {
+    closeDeckPopover();
+  }
+});
+
+document.querySelectorAll("[data-close-deck]").forEach(el =>
+  el.addEventListener("click", closeDeckPopover));
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeDeckPopover();
+});
+
+// ---------- system metrics (coloured percentages) ----------
+function setMetric(key, percent) {
+  const el = $(`metric-${key}`);
+  if (!el) return;
+  const known = typeof percent === "number" && Number.isFinite(percent);
+  const pct = known ? Math.max(0, Math.min(100, percent)) : 0;
+  el.querySelector(".metric-value").textContent = known ? `${Math.round(pct)}%` : "n/a";
+  el.dataset.level = !known ? "na" : pct >= 85 ? "hot" : pct >= 60 ? "warn" : "ok";
 }
 
 async function updateMetrics() {
   try {
-    const metrics = await apiFetch("/api/system/metrics");
-    const container = $("metricsContainer");
-    if (!container) return;
-
-    const label = DEVICE_LABELS[metrics.device] || "CPU";
-    const used = metrics.gpu_memory_used || 0;
-    const total = metrics.gpu_memory_total || 0;
-
-    if (metrics.device === "mps") {
-      const memText = total > 0 ? `${formatMB(used)} / ${formatMB(total)}` : formatMB(used);
-      container.innerHTML = `
-        <div class="metric-item">
-          ${label} · ${memText}
-          ${total > 0 ? progressBar((used / total) * 100) : ""}
-        </div>
-      `;
-    } else if (metrics.gpu_utilization > 0) {
-      container.innerHTML = `
-        <div class="metric-item">
-          GPU: ${metrics.gpu_utilization}%
-          ${progressBar(metrics.gpu_utilization)}
-        </div>
-        <div class="metric-item">
-          VRAM: ${formatMB(used)} / ${formatMB(total)}
-          ${progressBar(total > 0 ? (used / total) * 100 : 0)}
-        </div>
-      `;
-    } else {
-      container.innerHTML = `<div class="metric-item">${label}</div>`;
-    }
+    const m = await apiFetch("/api/system/metrics");
+    setMetric("cpu", m.cpu?.percent);
+    setMetric("gpu", m.gpu?.percent);
+    setMetric("ram", m.ram?.percent);
   } catch (e) {
     console.error("Failed to fetch metrics", e);
   }
