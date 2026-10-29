@@ -147,6 +147,35 @@ input { font-family: inherit; }
   flex: 1;
 }
 
+/* ---------- device / GPU metrics ---------- */
+.metrics-container {
+  display: flex;
+  gap: 12px;
+  font-size: .75rem;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 120px;
+}
+
+.progress-bar {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress {
+  height: 100%;
+  background: var(--accent);
+  transition: width .3s ease;
+}
+
 /* ---------- messages ---------- */
 .messages {
   flex: 1;

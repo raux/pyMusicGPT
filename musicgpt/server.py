@@ -28,7 +28,6 @@ from .model import MusicGenerator, save_audio
 from .storage import Storage
 
 logger = logging.getLogger(__name__)
-...
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
 
@@ -90,10 +89,28 @@ def create_app(
     # Entry endpoints
     # ------------------------------------------------------------------
 
+    @app.get("/api/sessions/{session_id}/entries")
+    def list_entries(session_id: str):
+        if not storage.get_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+        return storage.list_entries(session_id)
+
     @app.get("/api/system/metrics")
     def get_metrics():
-        metrics = {"gpu_utilization": 0, "gpu_memory_used": 0, "gpu_memory_total": 0}
-        if HAS_NVML:
+        metrics = {
+            "device": generator.device or generator.requested_device,
+            "gpu_utilization": 0,
+            "gpu_memory_used": 0,
+            "gpu_memory_total": 0,
+        }
+        if generator.device == "mps":
+            # Apple GPUs expose memory use but no utilisation percentage.
+            metrics["gpu_utilization"] = None
+            try:
+                metrics.update(generator.memory_stats())
+            except Exception:
+                logger.debug("Could not read MPS memory stats", exc_info=True)
+        elif HAS_NVML:
             try:
                 pynvml.nvmlInit()
                 handle = pynvml.nvmlDeviceGetHandleByIndex(0)

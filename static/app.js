@@ -74,6 +74,7 @@ function renderSessions(sessions) {
       if (confirm(`Delete "${s.name}"?`)) {
         await apiFetch(`/api/sessions/${s.id}`, { method: "DELETE" });
         if (currentSessionId === s.id) {
+          stopAllPolling();
           currentSessionId = null;
           messages.innerHTML = "";
           messages.appendChild(emptyState);
@@ -110,12 +111,15 @@ $("newChatBtn").addEventListener("click", async () => {
 // ---------- entries ----------
 async function loadEntries(sessionId) {
   const entries = await apiFetch(`/api/sessions/${sessionId}/entries`);
+  if (sessionId !== currentSessionId) return;   // user switched sessions meanwhile
+  stopAllPolling();
   messages.innerHTML = "";
   if (entries.length === 0) {
     messages.appendChild(emptyState);
     return;
   }
   entries.forEach(e => addMessageToUI(e));
+  entries.filter(e => e.status === "pending").forEach(e => startPolling(e.id));
   scrollToBottom();
 }
 
@@ -160,20 +164,6 @@ function updateEntryUI(entry, responseEl) {
     logArea.style.opacity = "0.7";
     logArea.textContent = "Waiting for server logs...";
     responseEl.appendChild(logArea);
-
-    const intervalId = setInterval(async () => {
-      try {
-        const entry = await apiFetch(`/api/entries/${entryId}`);
-        updateEntryUI(entry, el);
-        if (entry.status !== "pending") {
-          clearInterval(intervalId);
-          pendingEntries.delete(entryId);
-        }
-      } catch (e) {
-        clearInterval(intervalId);
-        pendingEntries.delete(entryId);
-      }
-    }, POLL_MS);
   } else if (entry.status === "done" && entry.audio_file) {
 
     const audio = document.createElement("audio");
@@ -194,7 +184,13 @@ function updateEntryUI(entry, responseEl) {
   }
 }
 
+function stopAllPolling() {
+  pendingEntries.forEach(intervalId => clearInterval(intervalId));
+  pendingEntries.clear();
+}
+
 function startPolling(entryId) {
+  if (pendingEntries.has(entryId)) return;
   const el = document.querySelector(`#entry-${entryId} .message-response`);
   if (!el) return;
 
@@ -252,25 +248,53 @@ function scrollToBottom() {
 }
 
 // ---------- system metrics ----------
+const DEVICE_LABELS = {
+  mps: "Apple GPU (MPS)",
+  cuda: "NVIDIA GPU (CUDA)",
+  cpu: "CPU",
+  auto: "Device: auto",
+};
+
+function formatMB(mb) {
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
+}
+
+function progressBar(percent) {
+  const pct = Math.max(0, Math.min(100, percent || 0));
+  return `<div class="progress-bar"><div class="progress" style="width: ${pct}%"></div></div>`;
+}
+
 async function updateMetrics() {
   try {
     const metrics = await apiFetch("/api/system/metrics");
     const container = $("metricsContainer");
     if (!container) return;
 
-    if (metrics.gpu_utilization > 0) {
+    const label = DEVICE_LABELS[metrics.device] || "CPU";
+    const used = metrics.gpu_memory_used || 0;
+    const total = metrics.gpu_memory_total || 0;
+
+    if (metrics.device === "mps") {
+      const memText = total > 0 ? `${formatMB(used)} / ${formatMB(total)}` : formatMB(used);
+      container.innerHTML = `
+        <div class="metric-item">
+          ${label} · ${memText}
+          ${total > 0 ? progressBar((used / total) * 100) : ""}
+        </div>
+      `;
+    } else if (metrics.gpu_utilization > 0) {
       container.innerHTML = `
         <div class="metric-item">
           GPU: ${metrics.gpu_utilization}%
-          <div class="progress-bar"><div class="progress" style="width: ${metrics.gpu_utilization}%"></div></div>
+          ${progressBar(metrics.gpu_utilization)}
         </div>
         <div class="metric-item">
-          VRAM: ${metrics.gpu_memory_used.toFixed(0)}MB / ${metrics.gpu_memory_total.toFixed(0)}MB
-          <div class="progress-bar"><div class="progress" style="width: ${(metrics.gpu_memory_used / metrics.gpu_memory_total) * 100}%"></div></div>
+          VRAM: ${formatMB(used)} / ${formatMB(total)}
+          ${progressBar(total > 0 ? (used / total) * 100 : 0)}
         </div>
       `;
     } else {
-      container.innerHTML = "<em>No GPU detected</em>";
+      container.innerHTML = `<div class="metric-item">${label}</div>`;
     }
   } catch (e) {
     console.error("Failed to fetch metrics", e);
@@ -280,5 +304,10 @@ setInterval(updateMetrics, 2000);
 
 // ---------- init ----------
 (async () => {
-...
+  const savedTheme = localStorage.getItem("theme") || "dark";
+  applyTheme(savedTheme);
+
+  updateMetrics();
+  await loadSessions();
+})();
 

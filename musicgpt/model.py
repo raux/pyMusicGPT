@@ -6,6 +6,10 @@ import uuid
 import logging
 import numpy as np
 
+# Let PyTorch run any operator that Apple's Metal (MPS) backend does not
+# implement on the CPU instead of raising. Must be set before torch is imported.
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
 logger = logging.getLogger(__name__)
 
 MODELS = {
@@ -19,31 +23,112 @@ DEFAULT_SECS = 600
 MAX_SECS = 600
 SAMPLE_RATE = 32000
 
+DEVICES = ("auto", "cpu", "cuda", "mps")
+DEFAULT_DEVICE = "auto"
+
+DEVICE_LABELS = {
+    "cpu": "CPU",
+    "cuda": "NVIDIA GPU (CUDA)",
+    "mps": "Apple GPU (MPS)",
+}
+
+
+def _mps_available(torch) -> bool:
+    backend = getattr(torch.backends, "mps", None)
+    return bool(backend is not None and backend.is_available())
+
+
+def resolve_device(requested: str = DEFAULT_DEVICE, torch=None) -> str:
+    """Map a requested device to one that is actually available.
+
+    ``auto`` prefers CUDA, then Apple MPS, then CPU. An explicitly requested
+    accelerator that is unavailable falls back to CPU with a warning.
+    """
+    if requested not in DEVICES:
+        raise ValueError(
+            f"Unknown device '{requested}'. Choose from: {', '.join(DEVICES)}"
+        )
+    if requested == "cpu":
+        return "cpu"
+
+    if torch is None:
+        import torch  # noqa: F811  (lazy import keeps startup light)
+
+    cuda_ok = torch.cuda.is_available()
+    mps_ok = _mps_available(torch)
+
+    if requested == "auto":
+        if cuda_ok:
+            return "cuda"
+        if mps_ok:
+            return "mps"
+        return "cpu"
+
+    if requested == "cuda" and cuda_ok:
+        return "cuda"
+    if requested == "mps" and mps_ok:
+        return "mps"
+
+    logger.warning("Device '%s' is not available, falling back to CPU.", requested)
+    return "cpu"
+
 
 class MusicGenerator:
     """Wraps HuggingFace MusicGen to generate audio from text prompts."""
 
-    def __init__(self, model_size: str = DEFAULT_MODEL, use_gpu: bool = False):
+    def __init__(
+        self,
+        model_size: str = DEFAULT_MODEL,
+        use_gpu: bool = False,
+        device: str = DEFAULT_DEVICE,
+    ):
         """Initialise the generator, loading the model lazily on first use.
 
         Args:
             model_size: One of 'small', 'medium', or 'large'.
-            use_gpu: Whether to use a CUDA GPU for inference.
+            use_gpu: Deprecated. Kept for compatibility; ``device='auto'``
+                already prefers an available GPU (CUDA or Apple MPS).
+            device: One of 'auto', 'cpu', 'cuda', or 'mps'.
         """
         if model_size not in MODELS:
             raise ValueError(
                 f"Unknown model size '{model_size}'. Choose from: {', '.join(MODELS)}"
             )
+        if device not in DEVICES:
+            raise ValueError(
+                f"Unknown device '{device}'. Choose from: {', '.join(DEVICES)}"
+            )
         self.model_size = model_size
         self.model_name = MODELS[model_size]
         self.use_gpu = use_gpu
+        self.requested_device = device
+        self.device = None  # resolved lazily so construction never imports torch
         self._processor = None
         self._model = None
+
+    def resolve_device(self) -> str:
+        """Resolve (once) and return the device that inference will use."""
+        if self.device is None:
+            self.device = resolve_device(self.requested_device)
+            logger.info("Using device: %s", DEVICE_LABELS[self.device])
+        return self.device
+
+    def memory_stats(self) -> dict:
+        """Return accelerator memory use in MB (Apple MPS only; empty otherwise)."""
+        if self.device != "mps":
+            return {}
+        import torch
+
+        mps = torch.mps
+        used = mps.driver_allocated_memory() / (1024 ** 2)
+        total_fn = getattr(mps, "recommended_max_memory", None)
+        total = total_fn() / (1024 ** 2) if total_fn else 0
+        return {"gpu_memory_used": used, "gpu_memory_total": total}
 
     def _load(self) -> None:
         """Load the model and processor (called lazily)."""
         try:
-            import torch
+            import torch  # noqa: F401
             from transformers import AutoProcessor, MusicgenForConditionalGeneration
         except ImportError as exc:
             raise ImportError(
@@ -51,17 +136,13 @@ class MusicGenerator:
                 "Install them with: pip install transformers torch"
             ) from exc
 
+        device = self.resolve_device()
         logger.info("Loading model %s …", self.model_name)
         self._processor = AutoProcessor.from_pretrained(self.model_name)
-        self._model = MusicgenForConditionalGeneration.from_pretrained(self.model_name)
-
-        if self.use_gpu and torch.cuda.is_available():
-            self._model = self._model.to("cuda")
-            logger.info("Model loaded on CUDA.")
-        else:
-            if self.use_gpu:
-                logger.warning("CUDA not available, falling back to CPU.")
-            logger.info("Model loaded on CPU.")
+        # float32 on every device: float16 on MPS was measured as no faster.
+        model = MusicgenForConditionalGeneration.from_pretrained(self.model_name)
+        self._model = model.to(device).eval()
+        logger.info("Model loaded on %s.", DEVICE_LABELS[device])
 
     def generate(self, prompt: str, duration_secs: int = DEFAULT_SECS) -> np.ndarray:
         """Generate audio samples for *prompt*.
@@ -89,8 +170,7 @@ class MusicGenerator:
             return_tensors="pt",
         )
 
-        if self.use_gpu and torch.cuda.is_available():
-            inputs = {k: v.to("cuda") for k, v in inputs.items()}
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         max_new_tokens = int(duration_secs * 50)  # ~50 tokens/second for MusicGen
 
@@ -102,11 +182,13 @@ class MusicGenerator:
                 **inputs,
                 max_new_tokens=max_new_tokens,
             )
+        if self.device == "mps":
+            torch.mps.synchronize()  # make the timing below reflect real work
 
         elapsed = time.time() - start
         logger.info("Generation took %.1f s", elapsed)
 
-        audio = audio_values[0, 0].cpu().numpy()
+        audio = audio_values[0, 0].float().cpu().numpy()
         return audio
 
 
@@ -124,7 +206,8 @@ def save_audio(audio: np.ndarray, output_path: str) -> None:
             "scipy is required to save audio. Install it with: pip install scipy"
         ) from exc
 
-    audio_int16 = (audio * 32767).astype(np.int16)
+    # MusicGen can exceed full scale; clip so int16 conversion cannot wrap around.
+    audio_int16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
     wavfile.write(output_path, SAMPLE_RATE, audio_int16)
     logger.info("Audio saved to %s", output_path)
 

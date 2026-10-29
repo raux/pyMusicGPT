@@ -5,7 +5,17 @@ import logging
 import os
 import sys
 
-from .model import DEFAULT_MODEL, DEFAULT_SECS, MAX_SECS, MODELS, MusicGenerator, save_audio, unique_filename
+from .model import (
+    DEFAULT_DEVICE,
+    DEFAULT_MODEL,
+    DEFAULT_SECS,
+    DEVICES,
+    MAX_SECS,
+    MODELS,
+    MusicGenerator,
+    save_audio,
+    unique_filename,
+)
 from .storage import Storage
 
 
@@ -44,10 +54,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Model size to use for inference. Default: {DEFAULT_MODEL}.",
     )
     parser.add_argument(
+        "--device",
+        choices=list(DEVICES),
+        default=DEFAULT_DEVICE,
+        help=(
+            "Inference device. 'auto' picks CUDA, then Apple Silicon GPU (MPS), "
+            f"then CPU. Default: {DEFAULT_DEVICE}."
+        ),
+    )
+    parser.add_argument(
         "--gpu",
         action="store_true",
         default=False,
-        help="Use CUDA GPU for inference (if available).",
+        help="Use a GPU (CUDA or Apple MPS) if available. Same as --device auto.",
     )
     parser.add_argument(
         "--output",
@@ -89,7 +108,11 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     _configure_logging(args.verbose)
 
-    generator = MusicGenerator(model_size=args.model, use_gpu=args.gpu)
+    device = args.device
+    if args.gpu and device == "cpu":
+        parser.error("--gpu conflicts with --device cpu")
+
+    generator = MusicGenerator(model_size=args.model, use_gpu=args.gpu, device=device)
     storage = Storage(data_dir=args.data_dir)
 
     if args.prompt:
@@ -127,6 +150,7 @@ def main(argv=None) -> int:
 
         threading.Thread(target=_open_browser, daemon=True).start()
         print(f"Starting pyMusicGPT web UI at {url}")
+        generator.resolve_device()  # log the chosen device up front
 
         run_server(
             generator=generator,

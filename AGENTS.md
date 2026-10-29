@@ -18,5 +18,5 @@
 
 ## Important Constraints
 - **Model Downloads**: Models are automatically downloaded from HuggingFace Hub on first use. This may take significant time and disk space depending on the selected model size (`small`, `medium`, `large`).
-- **GPU Usage**: Use the `--gpu` flag to enable CUDA acceleration if available.
+- **GPU Usage**: `--device auto` (default) uses CUDA, then Apple Silicon MPS, then CPU. Use `--device {cpu,cuda,mps}` to force one; `--gpu` is a compatibility alias for `auto`. MPS sets `PYTORCH_ENABLE_MPS_FALLBACK=1` so unsupported ops run on the CPU.
 - **Remote Access**: Use `--ui-expose` to bind the server to `0.0.0.0` for remote connections.

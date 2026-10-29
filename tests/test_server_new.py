@@ -26,6 +26,19 @@ def test_metrics_endpoint(client):
     data = r.json()
     assert "gpu_utilization" in data
     assert "gpu_memory_used" in data
+    assert data["device"] == "auto"   # fake generator never resolves a device
+
+
+def test_metrics_reports_mps_memory(tmp_path):
+    gen = _FakeGenerator()
+    gen.device = "mps"
+    gen.memory_stats = lambda: {"gpu_memory_used": 2048.0, "gpu_memory_total": 24576.0}
+    app = create_app(gen, Storage(data_dir=str(tmp_path)))
+    data = TestClient(app).get("/api/system/metrics").json()
+    assert data["device"] == "mps"
+    assert data["gpu_utilization"] is None
+    assert data["gpu_memory_used"] == 2048.0
+    assert data["gpu_memory_total"] == 24576.0
 
 def test_list_sessions_empty(client):
     r = client.get("/api/sessions")

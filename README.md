@@ -18,7 +18,7 @@ pyMusicGPT is a full Python port of the Rust-based MusicGPT application. It offe
 | **Chat history** | Persistent sessions stored in SQLite — revisit, rename, or delete them. |
 | **Configurable duration** | Generate audio clips from 1 to 600 seconds. |
 | **Multiple model sizes** | `small`, `medium`, and `large` MusicGen variants. |
-| **GPU acceleration** | Optional CUDA support via PyTorch. |
+| **GPU acceleration** | Uses CUDA (NVIDIA) or Apple Silicon (MPS) automatically when available. |
 | **Cross-platform** | Runs wherever Python 3.9+ and PyTorch are available. |
 
 ---
@@ -26,7 +26,7 @@ pyMusicGPT is a full Python port of the Rust-based MusicGPT application. It offe
 ## Requirements
 
 - Python 3.9 or newer
-- [PyTorch](https://pytorch.org/get-started/locally/) (CPU or CUDA build)
+- [PyTorch](https://pytorch.org/get-started/locally/) (CPU, CUDA, or Apple Silicon/MPS build — the standard macOS wheel includes MPS)
 
 ---
 
@@ -62,7 +62,8 @@ Options:
 
 ```bash
 musicgpt --model medium --port 9000
-musicgpt --gpu --ui-expose   # bind to 0.0.0.0 for remote access
+musicgpt --device mps        # force the Apple Silicon GPU
+musicgpt --ui-expose         # bind to 0.0.0.0 for remote access
 ```
 
 ### CLI mode
@@ -78,10 +79,16 @@ Common options:
 ```bash
 musicgpt "80s synth pop" --secs 30
 musicgpt "jazz piano solo" --model medium --output my_track.wav
-musicgpt "ambient soundscape" --gpu
+musicgpt "ambient soundscape" --device cpu
 ```
 
 Run `musicgpt --help` for all options.
+
+### Choosing a device
+
+`--device` accepts `auto` (default), `cpu`, `cuda`, or `mps`. `auto` picks CUDA, then the Apple Silicon GPU (MPS), then CPU; an unavailable device falls back to CPU with a warning. `--gpu` is kept for compatibility and behaves like `--device auto`.
+
+On Apple Silicon, operators not yet implemented by MPS automatically fall back to the CPU (`PYTORCH_ENABLE_MPS_FALLBACK=1`). On an Apple M5 with the `small` model, MPS generated ~5 s of audio in ~22 s versus ~100 s on CPU. The first generation after start-up is slower while Metal kernels warm up. The web UI's top bar shows the active device and Apple GPU memory use.
 
 ---
 
