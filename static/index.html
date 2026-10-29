@@ -36,20 +36,25 @@
         <span class="session-title" id="sessionTitle">Select or create a chat</span>
       </div>
 
-      <!-- Message list -->
+      <!-- Card table: docked deck on top, played cards (generated tracks) below -->
       <div class="messages" id="messages">
-        <div class="empty-state" id="emptyState">
-          <div id="deckMount"></div>
-        </div>
-      </div>
+        <section class="deck-dock" id="deckDock" aria-label="Card decks">
+          <div class="dock-head">
+            <div class="dock-tabs" role="tablist" aria-label="Deck">
+              <button type="button" class="dock-tab" role="tab" id="tabIdeas" data-tab="ideas" aria-controls="dockIdeas" aria-selected="true">💡 Ideas</button>
+              <button type="button" class="dock-tab" role="tab" id="tabBuild" data-tab="build" aria-controls="dockBuild" aria-selected="false" tabindex="-1">🧩 Build</button>
+            </div>
+            <button type="button" class="dock-toggle" id="dockToggle" aria-expanded="true" aria-controls="dockBody">▾ Hide</button>
+          </div>
+          <div class="dock-body" id="dockBody">
+            <div role="tabpanel" id="dockIdeas" aria-labelledby="tabIdeas"></div>
+            <div role="tabpanel" id="dockBuild" aria-labelledby="tabBuild" hidden></div>
+          </div>
+        </section>
 
-      <!-- Idea deck pop-up (used once a chat has tracks) -->
-      <div class="deck-popover" id="deckPopover" hidden>
-        <div class="deck-popover-backdrop" data-close-deck></div>
-        <div class="deck-popover-panel" role="dialog" aria-label="Idea deck">
-          <button type="button" class="icon-btn deck-popover-close" data-close-deck aria-label="Close idea deck">✕</button>
-          <div id="deckPopoverBody"></div>
-        </div>
+        <div class="played-head" id="playedHead" hidden>Played cards</div>
+        <div class="played-grid" id="playedGrid"></div>
+        <p class="played-empty" id="playedEmpty">Draw a card or type a prompt, then hit <strong>Generate</strong> — your tracks land here as played cards.</p>
       </div>
 
       <!-- Input bar -->
@@ -58,7 +63,7 @@
           <label for="durationInput">Duration (s)</label>
           <input type="number" id="durationInput" min="1" max="600" value="10" />
         </div>
-        <button type="button" class="icon-btn deck-open-btn" id="deckBtn" title="Idea deck" aria-label="Open idea deck">🃏</button>
+        <button type="button" class="icon-btn deck-open-btn" id="deckBtn" title="Show the deck and deal" aria-label="Show the deck and deal">🃏</button>
         <input
           type="text"
           id="promptInput"

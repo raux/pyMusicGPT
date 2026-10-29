@@ -1,5 +1,7 @@
 /* ============================================================
    pyMusicGPT – client-side application
+   The chat is a card table: the deck (Ideas / Build) is docked on top
+   and every generation appears below it as a "played card".
    ============================================================ */
 
 const API = "";          // same origin
@@ -7,14 +9,24 @@ const POLL_MS = 2000;    // how often to poll pending entries
 
 // ---------- state ----------
 let currentSessionId = null;
-const pendingEntries = new Map();   // entryId -> { element, intervalId }
+const pendingEntries = new Map();   // entryId -> intervalId
+let pendingMeta = null;             // card / hand last placed in the prompt box
 
 // ---------- DOM helpers ----------
 const $ = id => document.getElementById(id);
 const sessionList = $("sessionList");
 const messages    = $("messages");
-const emptyState  = $("emptyState");
-const deckMount   = $("deckMount");   // lives inside emptyState, which is detached once a chat has tracks
+const playedGrid  = $("playedGrid");
+const playedHead  = $("playedHead");
+const playedEmpty = $("playedEmpty");
+const promptInput = $("promptInput");
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+}
 
 // ---------- theme ----------
 function applyTheme(theme) {
@@ -48,6 +60,25 @@ async function apiFetch(path, options = {}) {
   return res.json();
 }
 
+// ---------- card metadata (which card / hand a track came from) ----------
+// Stored in the browser only, keyed by entry id; unknown tracks show as Custom.
+const META_KEY = "pmg-card-meta";
+
+function loadMetaMap() {
+  try { return JSON.parse(localStorage.getItem(META_KEY)) || {}; } catch { return {}; }
+}
+
+function getCardMeta(entryId) {
+  return loadMetaMap()[entryId] || null;
+}
+
+function saveCardMeta(entryId, meta) {
+  if (!meta) return;
+  const map = loadMetaMap();
+  map[entryId] = meta;
+  try { localStorage.setItem(META_KEY, JSON.stringify(map)); } catch { /* storage full/blocked */ }
+}
+
 // ---------- sessions ----------
 async function loadSessions() {
   const sessions = await apiFetch("/api/sessions");
@@ -77,8 +108,7 @@ function renderSessions(sessions) {
         if (currentSessionId === s.id) {
           stopAllPolling();
           currentSessionId = null;
-          messages.innerHTML = "";
-          messages.appendChild(emptyState);
+          clearPlayed();
           $("sessionTitle").textContent = "Select or create a chat";
         }
         await loadSessions();
@@ -109,95 +139,106 @@ $("newChatBtn").addEventListener("click", async () => {
   await selectSession(session.id, session.name);
 });
 
-// ---------- entries ----------
+// ---------- played cards (generated tracks) ----------
+function syncPlayedEmpty() {
+  const hasCards = playedGrid.children.length > 0;
+  playedEmpty.hidden = hasCards;
+  playedHead.hidden = !hasCards;
+}
+
+function clearPlayed() {
+  playedGrid.replaceChildren();
+  syncPlayedEmpty();
+}
+
 async function loadEntries(sessionId) {
   const entries = await apiFetch(`/api/sessions/${sessionId}/entries`);
   if (sessionId !== currentSessionId) return;   // user switched sessions meanwhile
   stopAllPolling();
-  messages.innerHTML = "";
-  if (entries.length === 0) {
-    messages.appendChild(emptyState);
-    return;
-  }
-  entries.forEach(e => addMessageToUI(e));
+  playedGrid.replaceChildren();
+  entries.forEach(e => addPlayedCard(e));
   entries.filter(e => e.status === "pending").forEach(e => startPolling(e.id));
-  scrollToBottom();
+  syncPlayedEmpty();
+  if (entries.length) scrollToBottom();
 }
 
-function addMessageToUI(entry) {
-  // Remove empty state if present
-  emptyState.remove();
+function addPlayedCard(entry, meta = getCardMeta(entry.id)) {
+  const { TYPES, SLOTS } = window.Cards;
+  const type = meta && TYPES[meta.type] ? meta.type : "custom";
+  const isBuild = meta && meta.kind === "build";
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "message";
-  wrapper.id = `entry-${entry.id}`;
+  const card = el("article", `played-card type-${type}`);
+  card.id = `entry-${entry.id}`;
+  card.setAttribute("aria-label", `${meta ? meta.title : "Custom prompt"}: ${entry.prompt}`);
+  card.appendChild(window.Cards.artElement(type));
 
-  // User prompt bubble
-  const prompt = document.createElement("div");
-  prompt.className = "message-prompt";
-  prompt.textContent = entry.prompt;
-  wrapper.appendChild(prompt);
+  const body = el("div", "card-body");
+  const kicker = type === "custom" && !isBuild
+    ? "CUSTOM"
+    : `${isBuild ? "🧩 BUILD · " : ""}${TYPES[type].label.toUpperCase()}`;
+  body.append(el("div", "card-type", kicker), el("div", "card-title", meta ? meta.title : "Custom prompt"));
 
-  // Response card
-  const response = document.createElement("div");
-  response.className = "message-response";
-  wrapper.appendChild(response);
+  if (isBuild && meta.parts) {
+    const badges = el("div", "part-badges");
+    SLOTS.filter(s => s.key !== "style" && meta.parts[s.key]).forEach(s => {
+      badges.appendChild(el("span", `part-badge type-${s.key}`, `${s.icon} ${meta.parts[s.key]}`));
+    });
+    if (badges.children.length) body.appendChild(badges);
+  }
 
-  messages.appendChild(wrapper);
+  const prompt = el("div", "card-prompt", entry.prompt);
+  prompt.title = entry.prompt;
+  const response = el("div", "played-response");
+  body.append(prompt, response);
+  card.appendChild(body);
 
+  playedGrid.appendChild(card);
+  syncPlayedEmpty();
   updateEntryUI(entry, response);
-  return { wrapper, response };
+  return card;
 }
 
 function updateEntryUI(entry, responseEl) {
-  responseEl.innerHTML = "";
+  const card = responseEl.closest(".played-card");
+  responseEl.replaceChildren();
+  if (card) {
+    card.classList.toggle("is-pending", entry.status === "pending");
+    card.classList.toggle("is-error", entry.status === "error");
+    const oldLoop = card.querySelector(".card-loop");
+    if (oldLoop) oldLoop.remove();
+  }
 
   if (entry.status === "pending") {
-    const badge = document.createElement("div");
-    badge.className = "status-badge";
-    badge.innerHTML = `<span class="spinner"></span> Generating…`;
+    const badge = el("div", "status-badge");
+    badge.append(el("span", "spinner"), document.createTextNode(" Generating…"));
     responseEl.appendChild(badge);
-
-    const logArea = document.createElement("div");
-    logArea.className = "entry-logs";
-    logArea.style.fontSize = "0.8rem";
-    logArea.style.marginTop = "5px";
-    logArea.style.opacity = "0.7";
-    logArea.textContent = "Waiting for server logs...";
-    responseEl.appendChild(logArea);
   } else if (entry.status === "done" && entry.audio_file) {
-    const row = document.createElement("div");
-    row.className = "player-row";
-
-    const audio = document.createElement("audio");
-    audio.className = "audio-player";
+    const audio = el("audio", "audio-player");
     audio.controls = true;
     audio.loop = true;   // tracks are crossfaded server-side to loop seamlessly
+    audio.preload = "metadata";
     audio.src = `/api/entries/${entry.id}/audio`;
+    responseEl.appendChild(audio);
 
-    const loopBtn = document.createElement("button");
-    loopBtn.type = "button";
-    loopBtn.className = "icon-btn loop-toggle";
-    loopBtn.textContent = "🔁";
-    const syncLoop = () => {
-      loopBtn.setAttribute("aria-pressed", String(audio.loop));
-      loopBtn.title = audio.loop ? "Looping — click to play once" : "Plays once — click to loop";
-    };
-    loopBtn.addEventListener("click", () => { audio.loop = !audio.loop; syncLoop(); });
-    syncLoop();
+    if (card) {
+      // The card art animates while its track is playing.
+      audio.addEventListener("play", () => card.classList.add("is-playing"));
+      ["pause", "ended"].forEach(ev =>
+        audio.addEventListener(ev, () => card.classList.remove("is-playing")));
 
-    row.append(audio, loopBtn);
-    responseEl.appendChild(row);
-
-    const badge = document.createElement("div");
-    badge.className = "status-badge";
-    badge.textContent = "✅ Ready";
-    responseEl.appendChild(badge);
+      const loopBtn = el("button", "icon-btn loop-toggle card-loop", "🔁");
+      loopBtn.type = "button";
+      const syncLoop = () => {
+        loopBtn.setAttribute("aria-pressed", String(audio.loop));
+        loopBtn.title = audio.loop ? "Looping — click to play once" : "Plays once — click to loop";
+        loopBtn.setAttribute("aria-label", loopBtn.title);
+      };
+      loopBtn.addEventListener("click", () => { audio.loop = !audio.loop; syncLoop(); });
+      syncLoop();
+      card.appendChild(loopBtn);
+    }
   } else {
-    const err = document.createElement("div");
-    err.className = "error-text";
-    err.textContent = "❌ Generation failed. Please try again.";
-    responseEl.appendChild(err);
+    responseEl.appendChild(el("div", "error-text", "❌ Generation failed — please try again."));
   }
 }
 
@@ -208,13 +249,13 @@ function stopAllPolling() {
 
 function startPolling(entryId) {
   if (pendingEntries.has(entryId)) return;
-  const el = document.querySelector(`#entry-${entryId} .message-response`);
-  if (!el) return;
+  const responseEl = document.querySelector(`#entry-${entryId} .played-response`);
+  if (!responseEl) return;
 
   const intervalId = setInterval(async () => {
     try {
       const entry = await apiFetch(`/api/entries/${entryId}`);
-      updateEntryUI(entry, el);
+      updateEntryUI(entry, responseEl);
       if (entry.status !== "pending") {
         clearInterval(intervalId);
         pendingEntries.delete(entryId);
@@ -238,13 +279,18 @@ async function ensureSession(prompt) {
   });
   currentSessionId = session.id;
   $("sessionTitle").textContent = session.name;
+  clearPlayed();
   await loadSessions();
 }
+
+promptInput.addEventListener("input", () => {
+  if (!promptInput.value.trim()) pendingMeta = null;   // cleared → next prompt is Custom
+});
 
 $("promptForm").addEventListener("submit", async e => {
   e.preventDefault();
 
-  const prompt = $("promptInput").value.trim();
+  const prompt = promptInput.value.trim();
   const secs   = parseInt($("durationInput").value, 10) || 10;
   if (!prompt) return;
 
@@ -252,82 +298,101 @@ $("promptForm").addEventListener("submit", async e => {
 
   try {
     await ensureSession(prompt);   // no chat selected → start one automatically
-    $("promptInput").value = "";
-    closeDeckPopover();
+    const meta = pendingMeta;
+    pendingMeta = null;
+    promptInput.value = "";
 
     const entry = await apiFetch(`/api/sessions/${currentSessionId}/generate`, {
       method: "POST",
       body: JSON.stringify({ prompt, duration_secs: secs, loop: true }),
     });
-
-    const { response } = addMessageToUI(entry);
+    saveCardMeta(entry.id, meta);
+    addPlayedCard(entry, meta);
     scrollToBottom();
     startPolling(entry.id);
   } catch (err) {
     alert(`Error: ${err.message}`);
   } finally {
     $("sendBtn").disabled = false;
-    $("promptInput").focus();
+    promptInput.focus();
   }
 });
 
 // ---------- utils ----------
 function scrollToBottom() {
-  messages.scrollTop = messages.scrollHeight;
+  messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
 }
 
-// ---------- idea deck ----------
-const deck = new IdeaDeck({
-  getUseTarget: () => $("promptInput"),
-  onUse: idea => {
-    closeDeckPopover();
-    const input = $("promptInput");
-    input.value = idea.prompt;
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  },
+// ---------- docked deck (Ideas / Build) ----------
+function usePrompt(prompt, meta) {
+  promptInput.value = prompt;
+  pendingMeta = meta;
+  promptInput.focus();
+  promptInput.setSelectionRange(prompt.length, prompt.length);
+}
+
+const ideaDeck = new IdeaDeck({
+  getUseTarget: () => promptInput,
+  onUse: idea => usePrompt(idea.prompt, { kind: "idea", type: idea.type, title: idea.title }),
 });
-deckMount.appendChild(deck.el);
+const buildTable = new BuildTable({
+  onUse: ({ prompt, meta }) => usePrompt(prompt, meta),
+});
+$("dockIdeas").appendChild(ideaDeck.el);
+$("dockBuild").appendChild(buildTable.el);
 
-function openDeckPopover() {
-  $("deckPopoverBody").appendChild(deck.el);
-  $("deckPopover").hidden = false;
-  $("deckBtn").setAttribute("aria-expanded", "true");
+const TABS = { ideas: $("tabIdeas"), build: $("tabBuild") };
+let activeTab = "ideas";
+
+function setTab(name, focus = false) {
+  if (!TABS[name]) name = "ideas";
+  activeTab = name;
+  Object.entries(TABS).forEach(([key, tab]) => {
+    const selected = key === name;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    $(tab.getAttribute("aria-controls")).hidden = !selected;
+  });
+  if (focus) TABS[name].focus();
+  localStorage.setItem("pmg-deck-tab", name);
 }
 
-function closeDeckPopover() {
-  if ($("deckPopover").hidden) return;
-  $("deckPopover").hidden = true;
-  deckMount.appendChild(deck.el);   // home is the empty-chat screen (may be detached)
-  $("deckBtn").setAttribute("aria-expanded", "false");
+Object.values(TABS).forEach(tab => {
+  tab.addEventListener("click", () => setTab(tab.dataset.tab));
+  tab.addEventListener("keydown", e => {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      setTab(activeTab === "ideas" ? "build" : "ideas", true);
+    }
+  });
+});
+
+function setDockCollapsed(collapsed) {
+  $("deckDock").classList.toggle("collapsed", collapsed);
+  $("dockBody").hidden = collapsed;
+  $("dockToggle").textContent = collapsed ? "▸ Show deck" : "▾ Hide";
+  $("dockToggle").setAttribute("aria-expanded", String(!collapsed));
+  localStorage.setItem("pmg-deck-collapsed", collapsed ? "1" : "0");
 }
+
+$("dockToggle").addEventListener("click", () =>
+  setDockCollapsed(!$("deckDock").classList.contains("collapsed")));
 
 $("deckBtn").addEventListener("click", () => {
-  if (emptyState.isConnected && $("deckPopover").hidden) {
-    // Deck is already on screen (empty chat): just deal a card.
-    deck.el.scrollIntoView({ behavior: "smooth", block: "center" });
-    deck.draw();
-  } else if ($("deckPopover").hidden) {
-    openDeckPopover();
-  } else {
-    closeDeckPopover();
-  }
-});
-
-document.querySelectorAll("[data-close-deck]").forEach(el =>
-  el.addEventListener("click", closeDeckPopover));
-document.addEventListener("keydown", e => {
-  if (e.key === "Escape") closeDeckPopover();
+  setDockCollapsed(false);
+  messages.scrollTo({ top: 0, behavior: "smooth" });
+  if (activeTab === "build") buildTable.dealAll();
+  else ideaDeck.draw();
 });
 
 // ---------- system metrics (coloured percentages) ----------
 function setMetric(key, percent) {
-  const el = $(`metric-${key}`);
-  if (!el) return;
+  const metric = $(`metric-${key}`);
+  if (!metric) return;
   const known = typeof percent === "number" && Number.isFinite(percent);
   const pct = known ? Math.max(0, Math.min(100, percent)) : 0;
-  el.querySelector(".metric-value").textContent = known ? `${Math.round(pct)}%` : "n/a";
-  el.dataset.level = !known ? "na" : pct >= 85 ? "hot" : pct >= 60 ? "warn" : "ok";
+  metric.querySelector(".metric-value").textContent = known ? `${Math.round(pct)}%` : "n/a";
+  metric.dataset.level = !known ? "na" : pct >= 85 ? "hot" : pct >= 60 ? "warn" : "ok";
 }
 
 async function updateMetrics() {
@@ -346,8 +411,10 @@ setInterval(updateMetrics, 2000);
 (async () => {
   const savedTheme = localStorage.getItem("theme") || "dark";
   applyTheme(savedTheme);
+  setTab(localStorage.getItem("pmg-deck-tab") || "ideas");
+  setDockCollapsed(localStorage.getItem("pmg-deck-collapsed") === "1");
+  syncPlayedEmpty();
 
   updateMetrics();
   await loadSessions();
 })();
-

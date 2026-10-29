@@ -12,8 +12,9 @@ pyMusicGPT is a full Python port of the Rust-based MusicGPT application. It offe
 
 | Feature | Description |
 |---|---|
-| **Chat-style Web UI** | Conversational interface for writing prompts and playing back generated audio. |
+| **Card-table Web UI** | Each chat is a card table: a docked deck on top, generated tracks below as “played cards”. |
 | **Idea deck** | Draw animated prompt-idea cards in six styles (Chill, Energy, Retro, Cinematic, World, Jazz & Soul). |
+| **Track builder** | Deal one card each for Style, Drums, Bass, Rhythm, and Lead; the hand is composed into one prompt. |
 | **Seamless loops** | Tracks are crossfaded end-to-start and play on repeat (🔁 toggle per track). |
 | **CLI mode** | Generate music straight from the terminal. |
 | **Dark / Light theme** | One-click toggle between dark and light mode. |
@@ -68,9 +69,13 @@ musicgpt --device mps        # force the Apple Silicon GPU
 musicgpt --ui-expose         # bind to 0.0.0.0 for remote access
 ```
 
-#### Idea deck
+#### The card table
 
-An empty chat shows a deck of idea cards. Click the deck to draw a card (it flips over), **Skip** to flick it away and draw the next, **🔀 Shuffle** / **🎲 Surprise** to mix things up, and **✓ Use this** (or double-click the card) to drop its prompt into the input box for editing. The type chips limit the deck to one style:
+Every chat is a card table. The deck is docked at the top with two tabs — **💡 Ideas** and **🧩 Build** — and each generation lands below it as a **played card**: the same animated art as the card it came from, its title and prompt, and a looping player. A card shows *Generating…* while the model works; its art animates while generating, playing, or hovered. **▾ Hide** collapses the deck (remembered between visits); the 🃏 button next to the prompt box re-opens it and deals. Generating with no chat selected starts a new one automatically. Animations are disabled when the OS *Reduce motion* setting is on.
+
+#### 💡 Ideas
+
+Click the deck to draw a card (it flips over), **Skip** to flick it away and draw the next, **🔀 Shuffle** / **🎲 Surprise** to mix things up, and **✓ Use this** (or double-click the card) to drop its prompt into the input box for editing. The type chips limit the deck to one style:
 
 | Type | Example ideas | Card animation |
 |---|---|---|
@@ -81,11 +86,25 @@ An empty chat shows a deck of idea cards. Click the deck to draw a card (it flip
 | 🌍 World | Afrobeat, flamenco, koto & taiko, dub reggae | rhythm ripples |
 | 🎷 Jazz & Soul | jazz piano trio, neo-soul | rising smoke |
 
-Once a chat has tracks, open the deck from the 🃏 button next to the prompt box. Generating with no chat selected starts a new one automatically. Animations are disabled when the OS *Reduce motion* setting is on.
+#### 🧩 Build
+
+Build a track from parts: each slot has its own pile. Click a pile (or **🎲 Deal all**) to draw, click a drawn card to redraw it, **🔒** to keep it through re-deals, and **✕** to leave a part out. The hand is composed live into one prompt — e.g. *“80s synthwave with big gated reverb drums, a pulsing analog synth bass, shimmering synth arpeggios and a soaring saw synth lead, 100 BPM”* — and **✓ Use hand** puts it in the input box.
+
+| Pile | Example cards | Card animation |
+|---|---|---|
+| 🎨 Style | lo-fi hip hop, 80s synthwave, deep house, Afrobeat, jazz club (sets the BPM) | the genre’s animation |
+| 🥁 Drums | boom-bap, four-on-the-floor, breakbeats, brushed jazz, trap 808s, taiko | kick pulse + hi-hat ticks |
+| 🎸 Bass | deep sub, slap, walking upright, acid 303, analog pulse, dub | scrolling low wave |
+| 🎹 Rhythm | Rhodes chords, acoustic strum, reggae skank, pads, string ostinato, synth arps | stacking chord blocks |
+| 🎺 Lead | saxophone, saw lead, piano, flute, chiptune, guitar solo, wordless vocals | melody dots tracing a line |
+
+MusicGen renders one mixed track from the composed prompt — the parts describe the arrangement; they are not generated as separate stems.
+
+Played cards remember which card or hand they came from in the browser (`localStorage`), so typed prompts — and tracks opened in another browser — show as **✍️ Custom** cards.
 
 #### Looping playback
 
-Generated tracks play on repeat; use the 🔁 button beside a player to switch a track to play-once. To avoid a click at the loop point, the server blends the last ~1 s of each new clip into its start (equal-power crossfade), so a loop is about 1 s shorter than the requested duration. The CLI does the same unless you pass `--no-loop`.
+Generated tracks play on repeat; use the 🔁 button on a played card to switch it to play-once. To avoid a click at the loop point, the server blends the last ~1 s of each new clip into its start (equal-power crossfade), so a loop is about 1 s shorter than the requested duration. The CLI does the same unless you pass `--no-loop`.
 
 ### CLI mode
 
@@ -133,7 +152,7 @@ pyMusicGPT/
 │   ├── index.html    # Chat UI
 │   ├── style.css     # Light / dark theme styles
 │   ├── app.js        # Vanilla JS client
-│   └── ideas.js      # Animated idea card deck
+│   └── ideas.js      # Card decks: Ideas deck + Build table (card types, art, prompts)
 ├── tests/
 │   ├── test_storage.py
 │   ├── test_model.py

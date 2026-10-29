@@ -191,44 +191,6 @@ input { font-family: inherit; }
   gap: 16px;
 }
 
-.empty-state {
-  margin: auto;
-  color: var(--text2);
-  text-align: center;
-  font-size: 1rem;
-}
-
-/* ---------- message bubble ---------- */
-.message {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 680px;
-  align-self: flex-start;
-}
-
-.message-prompt {
-  align-self: flex-end;
-  background: var(--accent);
-  color: #fff;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  font-size: .9rem;
-  max-width: 480px;
-  word-break: break-word;
-}
-
-.message-response {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 260px;
-}
-
 .status-badge {
   font-size: .75rem;
   color: var(--text2);
@@ -250,15 +212,9 @@ input { font-family: inherit; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .audio-player {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  height: 36px;
   accent-color: var(--accent);
-}
-
-.player-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .loop-toggle { opacity: .55; }
@@ -744,38 +700,376 @@ input { font-family: inherit; }
   color: #fff;
 }
 
-/* ----- pop-up (deck on demand once a chat has tracks) ----- */
+/* ============================================================
+   Card table: docked deck + played cards
+   ============================================================ */
 .deck-open-btn { font-size: 1.05rem; padding: 6px 9px; }
 
-.deck-popover {
-  position: absolute;
-  inset: 0 0 64px 0;   /* stop above the input bar */
-  z-index: 20;
-  display: grid;
-  place-items: end center;
-  padding: 16px;
+.deck-dock {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg2);
+  padding: 10px 14px 14px;
 }
-.deck-popover[hidden] { display: none; }
-.deck-popover-backdrop {
+.deck-dock.collapsed { padding-bottom: 10px; }
+.dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dock-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+.dock-tab {
+  border: none;
+  background: none;
+  color: var(--text2);
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: .82rem;
+  font-weight: 600;
+  transition: background .15s, color .15s;
+}
+.dock-tab:hover { color: var(--text); }
+.dock-tab[aria-selected="true"] { background: var(--accent); color: #fff; }
+.dock-tab:focus-visible,
+.dock-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dock-toggle {
+  border: none;
+  background: none;
+  color: var(--text2);
+  font-size: .78rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.dock-toggle:hover { color: var(--text); background: var(--bg3); }
+.dock-body { margin-top: 8px; }
+.dock-body[hidden],
+.dock-body [role="tabpanel"][hidden] { display: none; }
+.deck-dock .deck-title { display: none; }   /* the tab already names the deck */
+
+/* ----- Build table ----- */
+.build {
+  --card-w: 116px;
+  --card-h: 162px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 2px;
+}
+.build-slots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+}
+.build-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.build-label {
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+.build-stage {
+  position: relative;
+  width: var(--card-w);
+  height: var(--card-h);
+}
+.build-pile {
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,.35);
-  backdrop-filter: blur(2px);
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 14px;
 }
-.deck-popover-panel {
-  position: relative;
-  padding: 16px 18px 12px;
-  border-radius: 16px;
+.build-pile:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
+.build-pile .pile-card { border-width: 3px; }
+.build-pile .pile-card::after { font-size: 22px; }
+.build-pile:hover .pile-card:last-of-type { translate: 0 -6px; }
+.build-slot.has-card .build-pile { visibility: hidden; }
+.build-stage .idea-card { cursor: pointer; }
+.build-slot.is-locked .card-front {
+  box-shadow: 0 0 0 3px var(--bg2), 0 0 0 5px var(--c1), 0 10px 24px rgba(0,0,0,.35);
+}
+
+.idea-card.mini .card-art { height: 60%; }
+.idea-card.mini .card-corner { font-size: 14px; top: 4px; left: 6px; }
+.idea-card.mini .card-body { padding: 6px 8px; gap: 2px; }
+.idea-card.mini .card-type { font-size: .5rem; }
+.idea-card.mini .card-title { font-size: .74rem; }
+.idea-card.mini .card-prompt { display: none; }
+
+.build-controls { display: flex; gap: 4px; }
+.build-ctl {
+  min-width: 30px;
+  padding: 3px 7px;
   border: 1px solid var(--border);
+  border-radius: 8px;
   background: var(--bg);
-  box-shadow: 0 12px 40px rgba(0,0,0,.45);
-  animation: deck-pop .22s ease-out;
+  color: var(--text);
+  font-size: .78rem;
+  transition: background .15s, opacity .15s;
 }
-.deck-popover-close { position: absolute; top: 10px; right: 10px; }
-@keyframes deck-pop { from { transform: translateY(16px); opacity: 0; } }
+.build-ctl:hover:not(:disabled) { background: var(--bg3); }
+.build-ctl:disabled { opacity: .35; cursor: not-allowed; }
+.build-ctl[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 25%, var(--bg)); }
+
+.build-preview {
+  max-width: 640px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: var(--bg);
+  font-size: .82rem;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--text);
+}
+.build-preview.is-empty { color: var(--text2); font-style: italic; }
+
+/* ----- played cards ----- */
+.played-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+.played-head::before,
+.played-head::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.played-head[hidden] { display: none; }
+
+.played-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+.played-grid:empty { display: none; }
+.played-empty {
+  text-align: center;
+  font-size: .85rem;
+  color: var(--text2);
+}
+.played-empty[hidden] { display: none; }
+
+.played-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fdfbf7;
+  color: #1d1d29;
+  border: 3px solid var(--c1);
+  box-shadow: 0 8px 22px rgba(0,0,0,.3);
+  animation: played-in .45s cubic-bezier(.2,.8,.2,1);
+}
+@keyframes played-in { from { transform: translateY(18px) rotate(-2deg) scale(.96); opacity: 0; } }
+.played-card .card-art { height: 112px; }
+.played-card .card-body { gap: 3px; padding: 8px 12px 12px; }
+.played-card .card-prompt { -webkit-line-clamp: 3; font-size: .7rem; }
+.played-card.is-error { opacity: .8; }
+.played-card .status-badge { color: #55555f; }
+.played-card .spinner { border-color: #d6d2ea; border-top-color: var(--c1); }
+.played-card .error-text { color: #c0392b; font-size: .78rem; }
+.played-response { margin-top: 6px; }
+
+/* Played-card art animates only while generating, playing, or hovered. */
+.played-card:not(.is-playing):not(.is-pending):not(:hover) .card-art,
+.played-card:not(.is-playing):not(.is-pending):not(:hover) .card-art * {
+  animation-play-state: paused;
+}
+
+.card-loop {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  padding: 3px 7px;
+  color: #fff;
+  border-color: rgba(255,255,255,.55);
+  background: rgba(0,0,0,.35);
+}
+.card-loop[aria-pressed="true"] {
+  border-color: #fff;
+  background: color-mix(in srgb, var(--c1) 70%, #000);
+}
+
+.part-badges { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
+.part-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: .62rem;
+  font-weight: 600;
+  color: #2b2b36;
+  background: color-mix(in srgb, var(--c1) 14%, #fff);
+  border: 1px solid color-mix(in srgb, var(--c1) 45%, #fff);
+}
+
+/* ----- part + custom card colours ----- */
+.type-drums  { --c1: #d9480f; --art-bg: radial-gradient(circle at 50% 62%, #ff8a3d 0%, #b8360a 55%, #3d1405 100%); }
+.type-bass   { --c1: #3949ab; --art-bg: linear-gradient(180deg, #121845, #3949ab); }
+.type-rhythm { --c1: #00897b; --art-bg: linear-gradient(160deg, #04332e, #00897b 70%, #4fd1c5); }
+.type-lead   { --c1: #8e24aa; --art-bg: linear-gradient(160deg, #2a0a3a, #8e24aa 65%, #e07be0); }
+.type-custom { --c1: #5c6f7b; --art-bg: linear-gradient(160deg, #1f2a30, #5c6f7b); }
+
+/* ----- Drums: kick pulse + hi-hat ticks ----- */
+.art-kick,
+.art-kick-ring {
+  left: 50%;
+  top: 60%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+}
+.art-kick {
+  background: radial-gradient(circle, #fff 0 30%, rgba(255,255,255,.35) 31% 60%, transparent 61%);
+  animation: deck-kick .5s cubic-bezier(.2,.9,.3,1) infinite;
+}
+.art-kick-ring {
+  border: 2px solid rgba(255,255,255,.8);
+  animation: deck-kick-ring .5s ease-out infinite;
+}
+@keyframes deck-kick { 0% { transform: scale(1.25); } 60%, 100% { transform: scale(.85); } }
+@keyframes deck-kick-ring { from { transform: scale(.8); opacity: 1; } to { transform: scale(2.4); opacity: 0; } }
+.art-hats {
+  left: 30%;   /* clear of the corner icon */
+  right: 12%;
+  top: 14%;
+  height: 8px;
+  display: flex;
+  justify-content: space-between;
+}
+.art-hats .hat {
+  position: static;
+  width: 14px;
+  height: 6px;
+  border-radius: 3px;
+  background: #fff;
+  opacity: .25;
+  animation: deck-hat 1s steps(1) infinite;
+}
+.art-hats .hat:nth-child(2) { animation-delay: .25s; }
+.art-hats .hat:nth-child(3) { animation-delay: .5s; }
+.art-hats .hat:nth-child(4) { animation-delay: .75s; }
+@keyframes deck-hat { 0% { opacity: 1; } 25%, 100% { opacity: .25; } }
+
+/* ----- Bass / Custom: scrolling waves ----- */
+.art-wave {
+  left: 0;
+  top: 25%;
+  width: 200%;
+  height: 50%;
+  overflow: visible;
+  animation: deck-wave 2.6s linear infinite;
+}
+.art-wave path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 4;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.bass-wave + .bass-wave { top: 34%; opacity: .35; animation-duration: 4.2s; }
+.custom-wave path { stroke-width: 2.5; }
+.custom-wave + .custom-wave { top: 31%; opacity: .45; animation-duration: 3.6s; animation-direction: reverse; }
+@keyframes deck-wave { to { transform: translateX(-50%); } }
+
+/* ----- Rhythm: chord blocks ----- */
+.art-chords {
+  left: 12%;
+  right: 12%;
+  bottom: 14%;
+  height: 64%;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.art-chords .chord {
+  position: static;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  transform-origin: bottom;
+  animation: deck-chord 1.6s ease-in-out infinite;
+}
+.art-chords .chord b {
+  position: static;
+  display: block;
+  height: 14px;
+  border-radius: 3px;
+  background: rgba(255,255,255,.9);
+}
+.art-chords .chord:nth-child(2) { animation-delay: .4s; }
+.art-chords .chord:nth-child(3) { animation-delay: .8s; }
+.art-chords .chord:nth-child(4) { animation-delay: 1.2s; }
+@keyframes deck-chord {
+  0%, 100% { transform: scaleY(.55); opacity: .45; }
+  12%      { transform: scaleY(1.06); opacity: 1; }
+  30%      { transform: scaleY(1); opacity: .95; }
+  60%      { transform: scaleY(.6); opacity: .5; }
+}
+
+/* ----- Lead: melody line ----- */
+.art-melody { inset: 0; width: 100%; height: 100%; }
+.art-melody polyline {
+  fill: none;
+  stroke: rgba(255,255,255,.4);
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+  animation: deck-dash 1.2s linear infinite;
+}
+@keyframes deck-dash { to { stroke-dashoffset: -16; } }
+.card-art .mdot {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px 2px rgba(255,255,255,.7);
+  opacity: .25;
+  animation: deck-note 2.1s ease-in-out infinite;
+}
+.card-art .mdot:nth-child(2) { left: 8.3%;  top: 73.3%; }
+.card-art .mdot:nth-child(3) { left: 23.3%; top: 50%;   animation-delay: .3s; }
+.card-art .mdot:nth-child(4) { left: 38.3%; top: 60%;   animation-delay: .6s; }
+.card-art .mdot:nth-child(5) { left: 53.3%; top: 30%;   animation-delay: .9s; }
+.card-art .mdot:nth-child(6) { left: 68.3%; top: 43.3%; animation-delay: 1.2s; }
+.card-art .mdot:nth-child(7) { left: 83.3%; top: 20%;   animation-delay: 1.5s; }
+.card-art .mdot:nth-child(8) { left: 93.3%; top: 33.3%; animation-delay: 1.8s; }
+@keyframes deck-note {
+  0%, 100% { opacity: .25; transform: scale(.6); }
+  10%      { opacity: 1;   transform: scale(1.3); }
+  30%      { opacity: .6;  transform: scale(1); }
+}
 
 @media (max-width: 560px) {
   .deck { --card-w: 132px; --card-h: 190px; }
+  .build { --card-w: 96px; --card-h: 136px; }
+  .build-slots { gap: 8px; }
   .deck-stage { gap: 18px; }
   .card-prompt { -webkit-line-clamp: 2; }
 }
@@ -783,6 +1077,6 @@ input { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .card-art,
   .card-art *,
-  .deck-popover-panel { animation: none !important; }
+  .played-card { animation: none !important; }
   .pile-card { transition: none; }
 }
